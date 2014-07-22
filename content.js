@@ -19,19 +19,19 @@
 		
 	}
 
-	function refactorUrl(url) {
-		if (url.substring(0, 7) === "http://" || url.substring(0, 8) === "https://") {
-			// for absolute urls
-			return url;
-		} else if (url.substring(0, 1) === "/") {
-			// for relative urls
-			return location.origin + url;
-		} else {
-			return undefined;
-		}
+	
+	function getOriginOfUrl(url) {
+		pathArray = url.split("/");
+		return pathArray[0] + "//" + pathArray[2];
 	}
 
-	
+	function originMatches(url) {
+		if (getOriginOfUrl(location.href) === getOriginOfUrl(url)) {
+			return true;
+		} else {
+			return false;
+		}
+	}
 
 	document.addEventListener("DOMContentLoaded", function(event) {
 		var anchorTags = document.getElementsByTagName("a");
@@ -41,9 +41,10 @@
 		for (i = 0; i < anchorTags.length; i++) {
 			//Check if href attribute exists
 			if (anchorTags[i].getAttribute("href")) {
-				url = refactorUrl(anchorTags[i].getAttribute("href"));
+				// IMPORTANT! no getAttribute -> probably not the full url
+				url = anchorTags[i].href;
 				// Check if absolute url be refactored
-				if (url) {
+				if (url && originMatches(url)) {
 					reportUrl({"url": url, "parentUrl" : href});
 				}
 			}

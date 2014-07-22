@@ -1,7 +1,7 @@
 {
    "numberOfUrls" : 2,
-   "levelLimit" : 3,
-   "numberOfTabs" : 5,
-   "timePerPage" : 5,
+   "levelLimit" : 2,
+   "numberOfTabs" : 1,
+   "timePerPage" : 5000,
    "hardTimeout" : 10
 }

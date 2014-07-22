@@ -62,24 +62,17 @@
 		if (urlEntity.level <= settings.levelLimit) {
 			var trans = database.transaction(["urls"], 'readwrite');
 			var store = trans.objectStore("urls");
-			var getRequest = store.get(urlEntity.url);
+			var addRequest = store.add(urlEntity);
 
-			getRequest.onerror = function(event) {
-				console.log("Error!");
+			addRequest.onerror = function(error) {
+				// Handle constraint error -> Just do nothing, datasets should not be overwritten
+				//console.info(JSON.stringify(error));
 			};
 
-			getRequest.onsuccess = function(event) {
-				if(!getRequest.result) {
-
-					var putRequest = store.put(urlEntity);
-
-					putRequest.onerror = function(event) {
-						console.log("Error!");
-					};
-
-					putRequest.onsuccess = function(evt) {
-						console.log("Entry " + JSON.stringify(evt.target.result) + " stored");
-					};
+			addRequest.onsuccess = function(event) {
+				if(addRequest.result) {
+					console.log("Entry " + JSON.stringify(urlEntity) + " stored");
+					
 				}
 			};
 		}
@@ -87,7 +80,7 @@
 
 	function getUrls(){
 		var xhr = new XMLHttpRequest();
-		var src = chrome.extension.getURL("alexa.json");
+		var src = chrome.extension.getURL("alexa5.json");
 		xhr.open("GET", src, false);
 		xhr.send();
 
@@ -99,16 +92,77 @@
 
 	/**** Crawling logic ****/
 
-	function getNetxtUrlEntity() {
-		var trans = database.transaction(["urls"], 'readwrite');
-		var store = trans.objectStore("urls");
+	function CrawlerTab() {
+		var urlEntity, chromeTab, intervall;
 
+		this.start = function() {
+			run();
+		}		
+
+		this.stop = function(){
+			clearInterval(intervall); 
+		}
+
+		this.getUrlEntity = function() {
+			return urlEntity;
+		}
+
+		this.getTab = function() {
+			return chromeTab;
+		}
 		
+		function setTab(newTab) {
+			chromeTab = newTab;
+			run();
+		}
 
-		return {"url": getNextTopLevelUrl() , "level" : 0};
+		function setUrlEntity(newUrlEntity) {
+			console.log("READ: " + JSON.stringify(newUrlEntity));
+			urlEntity = newUrlEntity;
+			update();
+			setUrlEntityCrawled(newUrlEntity);
+		}
+
+
+		function update() {
+			chrome.tabs.update(chromeTab.id, {"url" : urlEntity.url});
+		}
+
+		function next() {
+			getNextUrlEntity(urlEntity, setUrlEntity);
+
+		}
+
+		function run(){
+			intervall = setInterval(next, settings.timePerPage); 
+		}
+
+		chrome.tabs.create({}, setTab);
+		crawlerTabs.push(this);
 	}
 
-	function getNextTopLevelUrl() {
+	function setUrlEntityCrawled(urlEntity) {
+		if (urlEntity) {
+			/*database.transaction(["urls"], 'readwrite').objectStore("urls").delete(urlEntity.url).onsuccess = function() {
+				urlEntity.crawled = 1;
+				database.transaction(["urls"], 'readwrite').objectStore("urls").add(urlEntity).onsuccess = function() {
+					console.log(urlEntity.url + " crawling!");			
+				};
+			};*/
+		}
+	}
+
+	function getNextUrlEntity(currentUrlEntity, callback) {
+
+		if (currentUrlEntity) {
+			getNextUrlOfOrigin(currentUrlEntity.origin, settings.levelLimit ,callback);
+		} else {
+			getNextTopLevelUrl(callback);
+		}
+
+	}
+
+	function getNextTopLevelUrl(callback) {
 		var trans = database.transaction(["urls"], 'readwrite');
 		var store = trans.objectStore("urls");
 		var index = store.index("rank");
@@ -116,40 +170,45 @@
 		request.onsuccess = function(event) {
 			var cursor = event.target.result;
 			if(cursor) {
-				console.log(event.target.result);
+				callback(event.target.result);
+			} else {
+				currentTopLevelIndex++;
+				getNextTopLevelUrl(callback);
 			}
 		}
 		currentTopLevelIndex++;
 	}
 
+	function getNextUrlOfOrigin(origin, level, callback) {
+
+		if (level === 0) {
+			getNextTopLevelUrl(callback);
+		} else if (level > 0) {
+			var trans = database.transaction(["urls"], 'readwrite');
+			var store = trans.objectStore("urls");
+			var index = store.index("next");
+			var request = index.get([origin, 0, level]);
+			request.onsuccess = function(event) {
+				var cursor = request.result;
+				if(cursor) {
+					callback(request.result);
+				} else {
+					getNextUrlOfOrigin(origin, (level-1), callback);
+				}
+			}
+		}
+
+	}
+
 	function runCrawler() {
 
-		var url;
-
-		/* Close all open tabs */
-		chrome.tabs.query({}, function(tabs) {
-			for (var i = 0; i < tabs.length; i++) {
-				chrome.tabs.remove(tabs[i].id);
-			}
-		});
-
-		/* Open crawling tabs */
+		// Open crawling tabs
 		for (var i = 0; i < settings.numberOfTabs; i++) {
-			urlEntity = getNetxtUrlEntity();
-			chrome.tabs.create({"url": urlEntity.url}, function(tab) {
-				crawlerTabs.push({"openedUrlEntity" : urlEntity, "tab" : tab})});
-		}
-
-		setInterval(function() {reloadTabs();}, (settings.timePerPage * 1000));
-		
+			new CrawlerTab();
+		}		
 	}
 
-	function reloadTabs() {
-		/* Set reload intervall for tabs */
-		for (var i = 0; i < crawlerTabs.length; i++) {
-			chrome.tabs.update(crawlerTabs[i].tab.id, {"url" : getNetxtUrlEntity().url});
-		}
-	}
+	
 
 	function getOriginOfUrl(url) {
 		pathArray = url.split("/");
@@ -158,10 +217,8 @@
 
 	function getNextLevel(tabID) {
 		for (var i = 0; i < crawlerTabs.length; i++) {
-			//console.log(crawlerTabs[i].tab.id + " - " + tabID)
-			if(crawlerTabs[i].tab.id == tabID) {
-				//console.log(crawlerTabs[i].openedUrlEntity.level);
-				return crawlerTabs[i].openedUrlEntity.level + 1;
+			if(crawlerTabs[i].getTab().id === tabID) {
+				return crawlerTabs[i].getUrlEntity().level + 1;
 			}
 		}
 
