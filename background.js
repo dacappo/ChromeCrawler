@@ -17,6 +17,7 @@
 
 		var urlList = [];
 		var currentTopLevelIndex = 0;
+		var currentUrlIndex = 0;
 
 		function checkIfAlreadyPresent(urlEntity) {
 			for (var i = 0; i < urlList[urlEntity.level].length; i++) {
@@ -56,11 +57,13 @@
 		}
 
 		function getNextUrlEntity (currentUrlEntity) {
+			currentUrlIndex++;
 			if (currentUrlEntity) {
 				return getNextUrlOfOrigin(currentUrlEntity, settings.levelLimit);
 			} else {
 				return getNextTopLevelUrl(currentUrlEntity);
 			}
+			
 		}
 
 		function getNextUrlOfOrigin(currentUrlEntity, level) {
@@ -81,6 +84,7 @@
 			deleteUrlsFromOrigin(currentUrlEntity);
 			var result =  urlList[0][currentTopLevelIndex];
 			currentTopLevelIndex++;
+			console.log("Crawling TLD " + currentTopLevelIndex + " - " + currentUrlIndex + " " + JSON.stringify(result));
 			return result;
 		}
 
@@ -97,7 +101,7 @@
 		function storeUrlEntity(urlEntity) {
 			if (urlEntity.level <= settings.levelLimit && !checkIfAlreadyPresent(urlEntity)) {
 				urlList[urlEntity.level].push(urlEntity);
-				console.log("UrlEntity " + JSON.stringify(urlEntity) + " stored");
+				//console.log("UrlEntity " + JSON.stringify(urlEntity) + " stored");
 			}
 		}
 
@@ -157,7 +161,7 @@
 		}
 
 		function update() {
-			console.info("Crawling: " + JSON.stringify(urlEntity));
+			//console.info("Crawling: " + JSON.stringify(urlEntity));
 			chrome.tabs.update(chromeTab.id, {"url" : urlEntity.url});
 		}
 
@@ -177,13 +181,13 @@
 	function UrlEntity(url, parentUrl, level) {
 		this.url = url;
 		this.parentUrl = parentUrl;
-		this. origin = getOriginOfUrl(url);
+		this.origin = getHostnameOfUrl(url);
 		this.level = level;
 		this.crawled = false;
 
-		function getOriginOfUrl(url) {
+		function getHostnameOfUrl(url) {
 			var pathArray = url.split("/");
-			return pathArray[0] + "//" + pathArray[2];
+			return pathArray[2];
 		}
 	}
 

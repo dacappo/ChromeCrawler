@@ -15,18 +15,15 @@
 	function reportUrl(url) {
 		console.log(url);
 		chrome.runtime.sendMessage(url);
-		
-		
 	}
 
-	
-	function getOriginOfUrl(url) {
-		pathArray = url.split("/");
-		return pathArray[0] + "//" + pathArray[2];
+	function getHostnameOfUrl(url) {
+		var pathArray = url.split("/");
+		return pathArray[2];
 	}
 
-	function originMatches(url) {
-		if (getOriginOfUrl(location.href) === getOriginOfUrl(url)) {
+	function hostnameMatches(url) {
+		if (getHostnameOfUrl(location.href) === getHostnameOfUrl(url)) {
 			return true;
 		} else {
 			return false;
@@ -44,7 +41,7 @@
 				// IMPORTANT! no getAttribute -> probably not the full url
 				url = anchorTags[i].href;
 				// Check if absolute url be refactored
-				if (url && originMatches(url)) {
+				if (url && hostnameMatches(url)) {
 					reportUrl({"url": url, "parentUrl" : href});
 				}
 			}
