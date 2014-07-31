@@ -1,13 +1,8 @@
-//(function() {
-	var database;
-	var settings;
-	var currentTopLevelIndex = 1;
-	var crawlerTabs = [];
+(function() {
+	"use strict";
 
-	function initializeCrawler() {
-		getSettings();
-		initializeDatabase();
-	}
+	var settings = getSettings();
+	var dataModel = new DataModel();
 
 	function getSettings() {
 		var xhr = new XMLHttpRequest();
@@ -15,80 +10,116 @@
 		xhr.open("GET", src, false);
 		xhr.send();
 
-		settings = JSON.parse(xhr.responseText);
-	}
+		return JSON.parse(xhr.responseText);
+	} 
 
+	function DataModel() {
 
-	function initializeDatabase() {
+		var urlList = [];
+		var currentTopLevelIndex = 0;
 
-		var request;
-
-		indexedDB.deleteDatabase("alexa");
-		request = indexedDB.open("alexa", 1);
-
-		request.onerror = function() {
-			console.log("Database creation failed!");
-		};
-
-		request.onupgradeneeded = function() {
-
-			var database = this.result;
-			if (!database.objectStoreNames.contains("urls")) {
-				var store = database.createObjectStore("urls", {keyPath: "url"});
-				store.createIndex("rank", "rank", {unique: false});
-				store.createIndex("next", ["origin", "crawled", "level"], {unique: false});
-
-			}
-		};
-
-		request.onsuccess = function() {
-			console.log("Database opened");
-
-			database = this.result;
-
-			var trans = database.transaction(["urls"], 'readwrite');
-			var store = trans.objectStore("urls");
-
-			getUrls().forEach(function(alexaEntity) {
-				var entity = new UrlEntity(alexaEntity.url, undefined, 0);
-				entity.rank = alexaEntity.id;
-				storeUrlEntity(entity);
-				});
-		};
-	}
-
-
-	function storeUrlEntity(urlEntity) {
-		if (urlEntity.level <= settings.levelLimit) {
-			var trans = database.transaction(["urls"], 'readwrite');
-			var store = trans.objectStore("urls");
-			var addRequest = store.add(urlEntity);
-
-			addRequest.onerror = function(error) {
-				// Handle constraint error -> Just do nothing, datasets should not be overwritten
-				//console.info(JSON.stringify(error));
-			};
-
-			addRequest.onsuccess = function(event) {
-				if(addRequest.result) {
-					console.log("Entry " + JSON.stringify(urlEntity) + " stored");
-					
+		function checkIfAlreadyPresent(urlEntity) {
+			for (var i = 0; i < urlList[urlEntity.level].length; i++) {
+				if (urlList[urlEntity.level][i].url === urlEntity.url) {
+					return true;
 				}
-			};
+			}
+
+			return false;
 		}
+
+				
+
+		function getUrls(){
+			var xhr = new XMLHttpRequest();
+			var src = chrome.extension.getURL("alexa.json");
+			xhr.open("GET", src, false);
+			xhr.send();
+
+			var result = JSON.parse(xhr.responseText);
+			console.log("JSON parsed");
+			return result;
+		}
+
+		
+
+		function setUrlEntityCrawled (urlEntity) {
+			if (!urlEntity) return true;
+			for (var i = 0; i < urlList[urlEntity.level].length; i++) { 
+				if (urlList[urlEntity.level][i].url === urlEntity.url) {
+					urlList[urlEntity.level][i].crawled = true;
+					return true;
+				};
+			}
+
+			return false;
+		}
+
+		function getNextUrlEntity (currentUrlEntity) {
+			if (currentUrlEntity) {
+				return getNextUrlOfOrigin(currentUrlEntity, settings.levelLimit);
+			} else {
+				return getNextTopLevelUrl(currentUrlEntity);
+			}
+		}
+
+		function getNextUrlOfOrigin(currentUrlEntity, level) {
+			if (level === 0) {
+				return getNextTopLevelUrl(currentUrlEntity);
+			} else {
+				for (var i = 0; i < urlList[level].length; i++) {
+					if(!urlList[level][i].crawled && urlList[level][i].origin === currentUrlEntity.origin) {
+						return urlList[level][i];
+					}
+				}
+
+				return getNextUrlOfOrigin(currentUrlEntity, (level-1));
+			}
+		}
+
+		function getNextTopLevelUrl(currentUrlEntity) {
+			deleteUrlsFromOrigin(currentUrlEntity);
+			var result =  urlList[0][currentTopLevelIndex];
+			currentTopLevelIndex++;
+			return result;
+		}
+
+		function deleteUrlsFromOrigin(urlEntity) {
+			for (var i = 1; i < urlList.length; i++) {
+				for (var j = 0; i <= urlList[i]; j++) {
+					if (urlList[i][j].origin === urlEntity.origin) {
+						urlList[i].splice(j, 1);
+					}
+				}
+			}
+		}
+
+		function storeUrlEntity(urlEntity) {
+			if (urlEntity.level <= settings.levelLimit && !checkIfAlreadyPresent(urlEntity)) {
+				urlList[urlEntity.level].push(urlEntity);
+				console.log("UrlEntity " + JSON.stringify(urlEntity) + " stored");
+			}
+		}
+
+		function initialize() {
+			// Top level url list
+			urlList = [];
+			// Other level url lists
+			for (var i = 0; i <= settings.levelLimit; i++) {
+				urlList.push(new Array());
+			}
+
+			// Fill first level url list
+			getUrls().forEach(function(url) {storeUrlEntity(new UrlEntity(url.url, undefined, 0));});
+			//urlList[0] = getUrls();
+		}
+
+		this.storeUrlEntity = storeUrlEntity;
+		this.setUrlEntityCrawled = setUrlEntityCrawled;
+		this.getNextUrlEntity = getNextUrlEntity;
+
+		initialize();
 	}
-
-	function getUrls(){
-		var xhr = new XMLHttpRequest();
-		var src = chrome.extension.getURL("alexa5.json");
-		xhr.open("GET", src, false);
-		xhr.send();
-
-		var result = JSON.parse(xhr.responseText);
-		console.log("JSON parsed");
-		return result;
-	}
-
 
 	/**** Crawling logic ****/
 
@@ -117,20 +148,22 @@
 		}
 
 		function setUrlEntity(newUrlEntity) {
-			console.log("READ: " + JSON.stringify(newUrlEntity));
 			urlEntity = newUrlEntity;
-			update();
-			setUrlEntityCrawled(newUrlEntity);
+			if (!urlEntity) {
+				stop();
+			} else {
+				update();
+			}
 		}
 
-
 		function update() {
+			console.info("Crawling: " + JSON.stringify(urlEntity));
 			chrome.tabs.update(chromeTab.id, {"url" : urlEntity.url});
 		}
 
 		function next() {
-			getNextUrlEntity(urlEntity, setUrlEntity);
-
+			dataModel.setUrlEntityCrawled(urlEntity);
+			setUrlEntity(dataModel.getNextUrlEntity(urlEntity));
 		}
 
 		function run(){
@@ -138,113 +171,64 @@
 		}
 
 		chrome.tabs.create({}, setTab);
-		crawlerTabs.push(this);
 	}
-
-	function setUrlEntityCrawled(urlEntity) {
-		if (urlEntity) {
-			/*database.transaction(["urls"], 'readwrite').objectStore("urls").delete(urlEntity.url).onsuccess = function() {
-				urlEntity.crawled = 1;
-				database.transaction(["urls"], 'readwrite').objectStore("urls").add(urlEntity).onsuccess = function() {
-					console.log(urlEntity.url + " crawling!");			
-				};
-			};*/
-		}
-	}
-
-	function getNextUrlEntity(currentUrlEntity, callback) {
-
-		if (currentUrlEntity) {
-			getNextUrlOfOrigin(currentUrlEntity.origin, settings.levelLimit ,callback);
-		} else {
-			getNextTopLevelUrl(callback);
-		}
-
-	}
-
-	function getNextTopLevelUrl(callback) {
-		var trans = database.transaction(["urls"], 'readwrite');
-		var store = trans.objectStore("urls");
-		var index = store.index("rank");
-		var request = index.get(currentTopLevelIndex);
-		request.onsuccess = function(event) {
-			var cursor = event.target.result;
-			if(cursor) {
-				callback(event.target.result);
-			} else {
-				currentTopLevelIndex++;
-				getNextTopLevelUrl(callback);
-			}
-		}
-		currentTopLevelIndex++;
-	}
-
-	function getNextUrlOfOrigin(origin, level, callback) {
-
-		if (level === 0) {
-			getNextTopLevelUrl(callback);
-		} else if (level > 0) {
-			var trans = database.transaction(["urls"], 'readwrite');
-			var store = trans.objectStore("urls");
-			var index = store.index("next");
-			var request = index.get([origin, 0, level]);
-			request.onsuccess = function(event) {
-				var cursor = request.result;
-				if(cursor) {
-					callback(request.result);
-				} else {
-					getNextUrlOfOrigin(origin, (level-1), callback);
-				}
-			}
-		}
-
-	}
-
-	function runCrawler() {
-
-		// Open crawling tabs
-		for (var i = 0; i < settings.numberOfTabs; i++) {
-			new CrawlerTab();
-		}		
-	}
-
 	
-
-	function getOriginOfUrl(url) {
-		pathArray = url.split("/");
-		return pathArray[0] + "//" + pathArray[2];
-	}
-
-	function getNextLevel(tabID) {
-		for (var i = 0; i < crawlerTabs.length; i++) {
-			if(crawlerTabs[i].getTab().id === tabID) {
-				return crawlerTabs[i].getUrlEntity().level + 1;
-			}
-		}
-
-		return settings.levelLimit;
-	}
 
 	function UrlEntity(url, parentUrl, level) {
 		this.url = url;
 		this.parentUrl = parentUrl;
 		this. origin = getOriginOfUrl(url);
 		this.level = level;
-		this.crawled = 0;
+		this.crawled = false;
+
+		function getOriginOfUrl(url) {
+			var pathArray = url.split("/");
+			return pathArray[0] + "//" + pathArray[2];
+		}
 	}
 
-	
-	/* Message event handler for communication with content scripts */
-	chrome.runtime.onMessage.addListener(
-		function(message, sender) {
-			storeUrlEntity(new UrlEntity(message.url, message.parentUrl, getNextLevel(sender.tab.id)));
+	function Crawler() {
+
+		var crawlerTabs = [];
+
+		function getNextLevel(tabID) {
+			for (var i = 0; i < crawlerTabs.length; i++) {
+				if(crawlerTabs[i].getTab().id === tabID) {
+					return crawlerTabs[i].getUrlEntity().level + 1;
+				}
+			}
+
+			return settings.levelLimit;
 		}
-	);
 
-	chrome.browserAction.onClicked.addListener(function() {
-		runCrawler();
-	});
+		function runCrawler() {
+			var spread = settings.timePerPage / settings.numberOfTabs;
+			// Open crawling tabs
+			for (var i = 0; i < settings.numberOfTabs; i++) {
+				setTimeout(function() {
+					var tab = new CrawlerTab();
+					crawlerTabs.push(tab);
+				}, i*spread);
+			}		
+		}
 
-	initializeCrawler();
+		function initialize() {
+			/* Message event handler for communication with content scripts */
+			chrome.runtime.onMessage.addListener(
+				function(message, sender) {
+					dataModel.storeUrlEntity(new UrlEntity(message.url, message.parentUrl, getNextLevel(sender.tab.id)));
+				}
+			);
 
-//}());
+			/* Event listener on cralwer icon */
+			chrome.browserAction.onClicked.addListener(function() {
+				runCrawler();
+			});
+		}
+
+		initialize();
+	}
+
+	window.crawler = new Crawler();
+
+}());
