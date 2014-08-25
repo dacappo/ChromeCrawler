@@ -48,4 +48,8 @@
 		}
 	});
 
+	window.alert = function(input) {console.log(input);};
+	window.confirm = function(input) {console.log(input);};
+	window.prompt = function(input) {console.log(input);};
+
 }());

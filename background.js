@@ -105,6 +105,10 @@
 			}
 		}
 
+		function setStartIndex(i) {
+			currentTopLevelIndex = i;
+		}
+
 		function initialize() {
 			// Top level url list
 			urlList = [];
@@ -115,8 +119,12 @@
 
 			// Fill first level url list
 			getUrls().forEach(function(url) {storeUrlEntity(new UrlEntity(url.url, undefined, 0));});
-			//urlList[0] = getUrls();
+
+			// Set start index
+			setStartIndex(settings.startIndex - 1);
 		}
+
+		
 
 		this.storeUrlEntity = storeUrlEntity;
 		this.setUrlEntityCrawled = setUrlEntityCrawled;
