@@ -1,6 +1,9 @@
 {
-   "startIndex" : 5200,
    "levelLimit" : 1,
    "numberOfTabs" : 4,
-   "timePerPage" : 10000
+   "timeout" : 10000,
+   "server" : {
+   		"host" : "localhost",
+   		"port" : 80
+   }
 }
